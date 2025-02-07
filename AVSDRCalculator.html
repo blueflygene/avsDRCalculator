@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VMware Node Calculator – Custom Time Inputs</title>
+  <!-- Include Chart.js from a CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 20px; 
+    }
+    form { 
+      margin-bottom: 20px; 
+    }
+    label { 
+      display: inline-block; 
+      width: 320px; 
+      margin-top: 10px; 
+    }
+    input, select { 
+      width: 100px; 
+      padding: 5px; 
+    }
+    button { 
+      margin-top: 15px; 
+      padding: 10px 20px; 
+    }
+    /* Center and size the chart container */
+    #chartContainer { 
+      max-width: 600px; 
+      margin: auto; 
+    }
+  </style>
+</head>
+<body>
+  <h1>VMware Node Calculator – Custom SDDC & Node Create Times</h1>
+  
+  <!-- Input Form -->
+  <!-- 
+       - Number of SDDCs: The first SDDC is already created; additional ones normally require a delay.
+       - Total Clusters per SDDC (including the default cluster): 1–12.
+       - Nodes per Additional Cluster: Node count for each new cluster beyond the default (which is fixed at 3 nodes).
+       - SDDC Create Delay: The delay time (hours and minutes) for an additional SDDC to create its default cluster.
+       - Node Create Time: The time (hours and minutes) to provision each additional cluster.
+       - Checkbox: “SDDCs already exist (remove creation delay)”.
+  -->
+  <form id="calcForm">
+    <label for="sddcCount">Number of SDDCs:</label>
+    <input type="number" id="sddcCount" name="sddcCount" value="3" min="1"><br>
+    
+    <label for="clustersTotal">Total Clusters per SDDC (1–12):</label>
+    <input type="number" id="clustersTotal" name="clustersTotal" value="4" min="1" max="12"><br>
+    
+    <label for="nodesPerAdditional">Nodes per Additional Cluster:</label>
+    <input type="number" id="nodesPerAdditional" name="nodesPerAdditional" value="8" min="1"><br>
+    
+    <label for="sddcDelayHours">SDDC Create Delay Hours:</label>
+    <input type="number" id="sddcDelayHours" name="sddcDelayHours" value="5" min="0"><br>
+    
+    <label for="sddcDelayMinutes">SDDC Create Delay Minutes:</label>
+    <input type="number" id="sddcDelayMinutes" name="sddcDelayMinutes" value="0" min="0" max="59"><br>
+    
+    <label for="nodeCreateHours">Node Create Time Hours:</label>
+    <input type="number" id="nodeCreateHours" name="nodeCreateHours" value="2" min="0"><br>
+    
+    <label for="nodeCreateMinutes">Node Create Time Minutes:</label>
+    <input type="number" id="nodeCreateMinutes" name="nodeCreateMinutes" value="5" min="0" max="59"><br>
+    
+    <label for="existingSDDC">
+      <input type="checkbox" id="existingSDDC" name="existingSDDC">
+      SDDCs already exist (remove creation delay)
+    </label><br>
+    
+    <button type="button" onclick="calculateNodes()">Calculate</button>
+  </form>
+  
+  <!-- Output Results -->
+  <div>
+    <p id="nodesPerSDDC">Nodes per SDDC: 0</p>
+    <p id="totalNodes">Total Nodes (All SDDCs): 0</p>
+    <p id="totalTime">Total Provisioning Time (hours): 0</p>
+    <p id="clustersUsed">Clusters per SDDC: 0</p>
+  </div>
+  
+  <!-- Chart Container -->
+  <div id="chartContainer">
+    <canvas id="nodeChart" width="600" height="300"></canvas>
+  </div>
+  
+  <script>
+    let chart; // Global Chart.js instance
+
+    function calculateNodes() {
+      // Retrieve basic input values.
+      const sddcCount = parseInt(document.getElementById('sddcCount').value, 10);
+      let clustersTotal = parseInt(document.getElementById('clustersTotal').value, 10);
+      const nodesPerAdditional = parseInt(document.getElementById('nodesPerAdditional').value, 10);
+      const removeDelay = document.getElementById('existingSDDC').checked;
+      
+      // Enforce clustersTotal limits: must be between 1 and 12.
+      if (clustersTotal < 1) clustersTotal = 1;
+      if (clustersTotal > 12) clustersTotal = 12;
+      document.getElementById('clustersTotal').value = clustersTotal;
+      
+      // Default cluster always has 3 nodes.
+      const defaultNodes = 3;
+      // Compute total nodes per SDDC.
+      const totalNodesPerSDDC = defaultNodes + (clustersTotal - 1) * nodesPerAdditional;
+      
+      // Check that total nodes per SDDC does not exceed 96.
+      if (totalNodesPerSDDC > 96) {
+        alert("Error: Total nodes per SDDC (" + totalNodesPerSDDC + 
+              ") exceed the maximum allowed (96). Please adjust your inputs.");
+        return;
+      }
+      
+      // Update displayed values.
+      document.getElementById('nodesPerSDDC').innerText = "Nodes per SDDC: " + totalNodesPerSDDC;
+      document.getElementById('clustersUsed').innerText = "Clusters per SDDC: " + clustersTotal;
+      
+      // Overall total nodes when fully provisioned.
+      const totalNodesOverall = sddcCount * totalNodesPerSDDC;
+      
+      // Retrieve and compute custom time inputs.
+      // SDDC creation delay:
+      const sddcDelayHours = parseFloat(document.getElementById('sddcDelayHours').value) || 0;
+      const sddcDelayMinutes = parseFloat(document.getElementById('sddcDelayMinutes').value) || 0;
+      const sddcCreateTime = sddcDelayHours + (sddcDelayMinutes / 60);  // in hours
+      
+      // Node (cluster) creation time:
+      const nodeCreateHours = parseFloat(document.getElementById('nodeCreateHours').value) || 0;
+      const nodeCreateMinutes = parseFloat(document.getElementById('nodeCreateMinutes').value) || 0;
+      const clusterProvisionTime = nodeCreateHours + (nodeCreateMinutes / 60);  // in hours
+      
+      // Determine simulation end time.
+      // For SDDC 0 (first one): full provisioning takes (clustersTotal - 1)*clusterProvisionTime.
+      // For additional SDDCs (if not removing delay): they complete at sddcCreateTime + (clustersTotal - 1)*clusterProvisionTime.
+      let simulationEnd;
+      if (removeDelay) {
+        simulationEnd = Math.ceil((clustersTotal - 1) * clusterProvisionTime);
+      } else {
+        if (sddcCount > 1) {
+          simulationEnd = Math.ceil(sddcCreateTime + (clustersTotal - 1) * clusterProvisionTime);
+        } else {
+          simulationEnd = Math.ceil((clustersTotal - 1) * clusterProvisionTime);
+          if (simulationEnd < 1) simulationEnd = 1;
+        }
+      }
+      
+      // Update displayed total provisioning time and total nodes.
+      document.getElementById('totalTime').innerText = "Total Provisioning Time (hours): " + simulationEnd;
+      document.getElementById('totalNodes').innerText = "Total Nodes (All SDDCs): " + totalNodesOverall;
+      
+      // Prepare simulation data (1‑hour intervals).
+      const dataLabels = [];
+      const dataPoints = [];
+      
+      for (let t = 0; t <= simulationEnd; t++) {
+        let cumulativeNodesAtT = 0;
+        // Process each SDDC.
+        for (let j = 0; j < sddcCount; j++) {
+          let nodesInSDDC = 0;
+          let timeOffset = 0;
+          
+          if (removeDelay) {
+            // When SDDCs already exist, treat every SDDC like SDDC 0.
+            timeOffset = t;
+          } else {
+            if (j === 0) {
+              // SDDC 0: available at t = 0.
+              timeOffset = t;
+            } else {
+              // For SDDCs with index >= 1, apply the creation delay.
+              if (t < sddcCreateTime) {
+                nodesInSDDC = 0;
+              } else {
+                timeOffset = t - sddcCreateTime;
+              }
+            }
+          }
+          
+          // If timeOffset is defined (or nodesInSDDC not already 0), compute additional clusters.
+          if (nodesInSDDC !== 0 || timeOffset > 0) {
+            let activeAdditional = Math.floor(timeOffset / clusterProvisionTime);
+            if (activeAdditional > (clustersTotal - 1)) {
+              activeAdditional = clustersTotal - 1;
+            }
+            nodesInSDDC = defaultNodes + activeAdditional * nodesPerAdditional;
+          }
+          
+          // Cap at full provisioned node count.
+          if (nodesInSDDC > totalNodesPerSDDC) {
+            nodesInSDDC = totalNodesPerSDDC;
+          }
+          cumulativeNodesAtT += nodesInSDDC;
+        }
+        dataLabels.push(t);
+        dataPoints.push(cumulativeNodesAtT);
+      }
+      
+      // Create or update the Chart.js chart.
+      if (chart) {
+        chart.data.labels = dataLabels;
+        chart.data.datasets[0].data = dataPoints;
+        chart.options.scales.x.max = simulationEnd;
+        chart.options.scales.x.ticks.stepSize = 1;
+        chart.options.scales.y.max = totalNodesOverall;
+        chart.update();
+      } else {
+        const ctx = document.getElementById('nodeChart').getContext('2d');
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: dataLabels,
+            datasets: [{
+              label: 'Cumulative Nodes (All SDDCs)',
+              data: dataPoints,
+              fill: false,
+              borderColor: 'rgb(75, 192, 192)',
+              tension: 0.4  // Smoothing for a linear chart
+            }]
+          },
+          options: {
+            scales: {
+              x: {
+                type: 'linear',
+                title: {
+                  display: true,
+                  text: 'Time (hours)'
+                },
+                min: 0,
+                max: simulationEnd,
+                ticks: {
+                  stepSize: 1
+                }
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: 'Cumulative Nodes'
+                },
+                min: 0,
+                max: totalNodesOverall
+              }
+            }
+          }
+        });
+      }
+    }
+  </script>
+</body>
+</html>
