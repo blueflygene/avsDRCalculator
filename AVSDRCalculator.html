@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>VMware Node Calculator – Custom Time Inputs</title>
-  <!-- Include Chart.js from a CDN -->
+  <title>AVS VMware Node Calculator – Custom Time Inputs</title>
+  <!-- Include simple Chart.js from a CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { 
@@ -34,19 +34,19 @@
   </style>
 </head>
 <body>
-  <h1>VMware Node Calculator – Custom SDDC & Node Create Times</h1>
+  <h1>AVS VMware Node Calculator – Custom SDDC & Node Create Times</h1>
   
   <!-- Input Form -->
   <!-- 
-       - Number of SDDCs: The first SDDC is already created; additional ones normally require a delay.
+       - Number of SDDCs: The first AVS SDDC is already created; additional ones require a delay that you can specify.
        - Total Clusters per SDDC (including the default cluster): 1–12.
        - Nodes per Additional Cluster: Node count for each new cluster beyond the default (which is fixed at 3 nodes).
        - SDDC Create Delay: The delay time (hours and minutes) for an additional SDDC to create its default cluster.
        - Node Create Time: The time (hours and minutes) to provision each additional cluster.
-       - Checkbox: “SDDCs already exist (remove creation delay)”.
+       - Checkbox: “SDDCs already exist (remove SDDC creation delay)”.
   -->
   <form id="calcForm">
-    <label for="sddcCount">Number of SDDCs:</label>
+    <label for="sddcCount">Number of SDDCs (It's assumed SDDC 0 already exists):</label>
     <input type="number" id="sddcCount" name="sddcCount" value="3" min="1"><br>
     
     <label for="clustersTotal">Total Clusters per SDDC (1–12):</label>
